@@ -519,6 +519,10 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     desc = 'Converting and processing %d raw %s data files' % (len(file_list), zpls_model)
     echo = [_process_file(file, site, output_directory, zpls_model, xml_file, tilt_correction)
             for file in tqdm(file_list, desc=desc)]
+    echo = [i for i in echo if i is not None]
+    if not echo:
+        # if no files were processed, exit cleanly
+        return None
 
     # concatenate the data into a single dataset
     try:
@@ -578,10 +582,14 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     downward = site_config[site]['instrument_orientation'] == 'down'  # instrument orientation
 
     # load the raw file, creating a xarray dataset object
-    if zpls_model == 'AZFP':
-        ds = ep.open_raw(file, sonar_model=zpls_model, xml_path=xml_file)
-    else:
-        ds = ep.open_raw(file, sonar_model=zpls_model)
+    try:
+        if zpls_model == 'AZFP':
+            ds = ep.open_raw(file, sonar_model=zpls_model, xml_path=xml_file)
+        else:
+            ds = ep.open_raw(file, sonar_model=zpls_model)
+    except Exception as e:
+        print('Error ''%s'' converting file: %s' % (e, file))
+        return None
 
     # add ICES metadata attributes
     ds['Platform']['platform_name'] = site  # OOI site name
