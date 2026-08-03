@@ -7,16 +7,22 @@ James Kuo, jkuo@whoi.edu; Stephanie Petillo, spetillo@whoi.edu; and Christopher 
 
 The Ocean Observatories Initiative (OOI) collects ocean sonar, or bioacoustic sonar data, from most of the sites that
 comprise the different Coastal and Global arrays. The sensor type used depends on whether the site is cabled or 
-uncabled. The [ASL Environmental Sciences Acoustic Zooplankton Fish Profiler (AZFP)](https://aslenv.com/azfp.html) is 
-used at the uncabled Coastal and Global (CG) sites, while the [Kongsberg Maritime Simrad EK60 Echo Sounder](https://www.kongsberg.com/maritime/products/mapping-systems/fishery-research/es_scientific/simrad-ek60/)
-is deployed at two of the cabled sites. The table below provides a full list of the arrays, sites and sensor types where 
+uncabled. The [ASL Environmental Sciences Acoustic Zooplankton Fish Profiler (AZFP)](https://www.aslenv.com/product-details.html#AZFP) is 
+used at the uncabled Coastal and Global (CG) sites, while the cabled sites use a Kongsberg Maritime Simrad echo
+sounder -- the (now discontinued) [EK60](https://www.kongsberg.com/discovery/products/discontinued/simrad-ek60/)
+prior to summer 2023, and the [EK80](https://www.kongsberg.com/what-we-do/ocean-space/ocean-science/ek-scientific-echo-sounder/)
+since. The table below provides a full list of the arrays, sites and sensor types where 
 the bioacoustic sonar sensors (a total of 17) are deployed.
+
+**Note on EK80 processing:** this pipeline's EK80 support is narrowband (CW/power) only. Files identified as
+broadband recordings are automatically detected and skipped (see Usage Notes) via a time-gap heuristic that is
+approximately 99% effective -- a small fraction of broadband files may still pass through and require manual review.
 
 | Array | Site | Sensor Model | Depth | Description |
 | :---: | :---: | :---: | :---: | :--- |
 | Coastal Endurance | [CE01ISSM](https://oceanobservatories.org/site/ce01issm/) | AZFP | 25 m | Oregon Inshore Surface Mooring |
-| Coastal Endurance | [CE02SHBP](https://oceanobservatories.org/site/ce02shbp/) | EK60 | 80 m | Oregon Shelf Cabled Benthic Experiment Package  |
-| Coastal Endurance | [CE04OSPS](https://oceanobservatories.org/site/ce04osps/) | EK60 | 200 m | Oregon Offshore Cabled Shallow Profiler Mooring |
+| Coastal Endurance | [CE02SHBP](https://oceanobservatories.org/site/ce02shbp/) | EK60/EK80 | 80 m | Oregon Shelf Cabled Benthic Experiment Package  |
+| Coastal Endurance | [CE04OSPS](https://oceanobservatories.org/site/ce04osps/) | EK60/EK80 | 200 m | Oregon Offshore Cabled Shallow Profiler Mooring |
 | Coastal Endurance | [CE06ISSM](https://oceanobservatories.org/site/ce06issm/) | AZFP | 29 m | Washington Inshore Surface Mooring |
 | Coastal Endurance | [CE07SHSM](https://oceanobservatories.org/site/ce07shsm/) | AZFP | 87 m | Washington Shelf Surface Mooring |
 | Coastal Endurance | [CE09OSSM](https://oceanobservatories.org/site/ce09ossm/) | AZFP | 542 m | Washington Offshore Surface Mooring |
@@ -56,10 +62,10 @@ cd ooi-zpls-echograms
 
 # configure the OOI python environment
 conda env create -f environment.yml
-conda activate echopype
+conda activate echogram
 
 # install the package as a local development package
-conda develop .
+pip install -e .
 ```
 
 Note, the use of `/home/ooiuser/code` above, and `/home/ooiuser/data` below, are solely for the purposes of these
@@ -70,12 +76,11 @@ examples. It is expected that users will have their own directory structure. Ada
 The code is intended to be used largely from the command line in a shell. Though users can import `ooi_zpls_echograms` 
 as a module and run the individual functions directly, the intent is to provide a means of batch processing the 
 bioacoustic sonar data for internal OOI use. Scripts used to run the processing are available in the [utilities](utilities)
-directory. The basic sequence of commands is:
+directory. Once installed (see Installation and Setup), the `zpls-echogram` command is available directly on the
+PATH. The basic sequence of commands is:
 
 ```shell
-cd /home/ooiuser/code/ooi-zpls-echograms/ooi_zpls_echograms
-
-./zpls_echogram.py -s [site_code] -d [data_directory] -o [output_directory] -dr [dates] -zm [instrument_type]
+zpls-echogram -s [site_code] -d [data_directory] -o [output_directory] -dr [dates] -zm [instrument_type]
 ```
 
 The inputs to the function are defined below, based on whether they are required or optional.
@@ -86,7 +91,7 @@ The inputs to the function are defined below, based on whether they are required
 | -d, --data_directory      | The path to the root data directory, below which the .01A or .raw files may be found. |  
 | -o, --output_directory    | The path to the root data directory where .nc file and .png plot will be saved. |  
 | -dr, --date_range         | The date range to be plotted, e.g.:<br>`-dr "20200118"` will plot the day (01/18/2020),<br>`-dr "202001"` will plot the whole month (01/01/2020 to 01/31/2020),<br>`-dr "202001 202002"` will plot (01/01/2020 to 02/29/2020),<br>`-dr "20200115 20200216"` will plot (01/15/2020 to 02/16/2020) |  
-| -zm, --zpls_model         | Sensor model, either an EK60 for cabled data, or an AZFP for uncabled |
+| -zm, --zpls_model         | Sensor model: EK60 or EK80 for cabled data, or an AZFP for uncabled |
 | **-xf, --xml_file**       | The path to .xml file to use if the sensor model is an AZFP. **Required if the sensor model is AZFP** |  
 
 | Optional flags | Description |  
@@ -111,6 +116,11 @@ The inputs to the function are defined below, based on whether they are required
   up towards the surface, and the other looking down).
 
 * The preset colorbar ranges are the same for every array. Feel free to change it via the optional colorbar_range input.
+
+* If `-zm EK80` is used, processing is limited to narrowband (CW/power) mode. The pipeline classifies input files as
+  broadband or narrowband based on the time gaps between recordings and automatically drops any files it identifies
+  as broadband -- broadband EK80 processing is not currently supported. Note, a small fraction of broadband files may
+  still pass through and require manual review.
   
 ## Raw and Processed Data Folders and Files
 
@@ -205,41 +215,40 @@ GA_XML="/home/ooiuser/data/GA/ZPLSG_sn55067/DATA/201610/16101417.XML"
 SITE="GA02HYPM_Upper"
 
 # convert and process the data
-conda activate echopype
-cd /home/ooiuser/code/ooi-zpls-echograms/ooi_zpls_echograms
-./zpls_echogram.py -s $SITE -d $GA_DATA -o $GA_PROC -dr "20161115 20161116" -zm AZFP -xf $GA_XML 
+conda activate echogram
+zpls-echogram -s $SITE -d $GA_DATA -o $GA_PROC -dr "20161115 20161116" -zm AZFP -xf $GA_XML 
 ```
 Process data from 2016-11-15 through 2016-11-16. The `.nc` files and `.png` plot will be stored under
 `/home/ooiuser/data/GA/ZPLSG_sn55067/processed/20161115-20161116/`.
 
 **Example 2:**  
 ```shell
-./zpls_echogram.py -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP -xf $GA_XML 
+zpls-echogram -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP -xf $GA_XML 
 ```
 Process the data for the entire month of November, from 2016-11-01 through 2016-11-30. The `.nc` files and `.png` plot
 will be stored under `/home/ooiuser/data/GA/ZPLSG_sn55067/processed/20161101-20161130/`.
 
 **Example 3:**  
 ```shell
-./zpls_echogram.py -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP  -xf $GA_XML -tc 10
+zpls-echogram -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP  -xf $GA_XML -tc 10
 ```
 Change the default tilt correction angle to 10 degrees via the optional `-tc` flag.
 
 **Example 4:**  
 ```shell
-./zpls_echogram.py -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP -xf $GA_XML -dd 160
+zpls-echogram -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP -xf $GA_XML -dd 160
 ```
 If the instrument is deployed at 160 m, instead of the design depth of 150 m. The optional flag `-dd 160` will 
 override the mooring configuration.
 
 **Example 5:**
 ```shell
-./zpls_echogram.py -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP -xf $GA_XML -cr -120 -20 -dd 160
+zpls-echogram -s $SITE -d $GA_DATA -o $GA_PROC -dr "201611" -zm AZFP -xf $GA_XML -cr -120 -20 -dd 160
 ```
 Change both the deployed depth to 160 m and the default colorbar range to -120 to -20 dB via the optional `-cr` flag.
 
 **Example 6:**  
 ```shell
-./zpls_echogram.py -s $SITE -d $GA_DATA -o $GA_PROC -xf $GA_XML -dr "201611" -zm AZFP -vr 0 160 -dd 160
+zpls-echogram -s $SITE -d $GA_DATA -o $GA_PROC -xf $GA_XML -dr "201611" -zm AZFP -vr 0 160 -dd 160
 ```
 Change the default vertical range to use 0 to 160 m for the new deployment depth of 160 m via the optional `-vr` flag.
