@@ -274,9 +274,9 @@ attributes = {
     },
     'Sv': {
         'long_name': 'Volume Acoustic Backscatter Strength (Sv re 1 m-1)',
-        'units': 'dB ',
-        'comments': ('Initial estimate of the volume acoustic backscatter strength derived from the raw instrument '
-                     'data using echopype to convert and process the data.'),
+        'units': 'dB',
+        'comment': ('Initial estimate of the volume acoustic backscatter strength derived from the raw instrument '
+                    'data using echopype to convert and process the data.'),
         'ooi_data_product': 'SONBSCA_L1'
     }
 }
