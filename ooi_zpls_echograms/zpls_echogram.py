@@ -15,7 +15,6 @@ import re
 import warnings
 import xarray as xr
 
-from calendar import monthrange
 from datetime import datetime, date, timedelta
 from echopype.qc import exist_reversed_time, coerce_increasing_time
 from importlib.resources import files
@@ -419,6 +418,40 @@ def range_correction(data, tilt_correction):
     data['echo_range'] = data.echo_range * np.cos(np.deg2rad(tilt_correction))
 
 
+def normalize_date_range(dates):
+    """
+    Normalize the user-supplied date range into a (start, stop) pair of
+    YYYYMMDD strings, where stop is an exclusive upper bound (i.e. the
+    range covers [start, stop), matching the convention used by the
+    weekly batch scripts). Handles three input shapes:
+      - a single YYYYMMDD day        -> (day, day + 1)
+      - a single YYYYMM month        -> (first-of-month, first-of-next-month)
+      - two explicit start/stop tokens (YYYYMMDD or YYYYMM), used as-is
+
+    Idempotent: calling this again on an already-normalized pair is a no-op,
+    so it is safe to call from multiple entry points.
+
+    :param dates: list of 1 or 2 date strings from the -dr argument.
+    :return: [start, stop] as YYYYMMDD strings, exclusive stop.
+    """
+    if len(dates) == 1:
+        if len(dates[0]) == 6:
+            dates = [dates[0], dates[0]]
+        else:
+            dates = [dates[0], (dparser.parse(dates[0]) + timedelta(days=1)).strftime('%Y%m%d')]
+
+    if len(dates[0]) == 6:
+        dates[0] = dates[0] + '01'
+        end_year = int(dates[1][:4])
+        end_month = int(dates[1][4:6])
+        if end_month == 12:
+            dates[1] = '%04d0101' % (end_year + 1)
+        else:
+            dates[1] = '%04d%02d01' % (end_year, end_month + 1)
+
+    return dates
+
+
 def azfp_file_list(data_directory, dates):
     """
     Generate a list of file paths pointing to the .01A files from an AZFP that
@@ -428,13 +461,7 @@ def azfp_file_list(data_directory, dates):
     :param dates: starting and ending dates to use in generating the file list.
     :return: the list of potential .01A file names, including full path.
     """
-    if len(dates) == 1:
-        dates += [dates[0]]
-
-    if len(dates[0]) == 6:
-        dates[0] = dates[0] + '01'
-        dates[1] = dates[1] + str(monthrange(int(dates[1][:4]), int(dates[1][4:]))[1])
-
+    dates = normalize_date_range(dates)
     sdate = dparser.parse(dates[0])
     edate = dparser.parse(dates[1]) - timedelta(days=1)
     delta = edate - sdate
@@ -458,13 +485,7 @@ def ek_file_list(data_directory, dates):
     :param dates: starting and ending dates to use in generating the file list.
     :return: the .raw file names, including full path.
     """
-    if len(dates) == 1:
-        dates += [dates[0]]
-
-    if len(dates[0]) == 6:
-        dates[0] = dates[0] + '01'
-        dates[1] = dates[1] + str(monthrange(int(dates[1][:4]), int(dates[1][4:]))[1])
-
+    dates = normalize_date_range(dates)
     sdate = dparser.parse(dates[0])
     edate = dparser.parse(dates[1]) - timedelta(days=1)
     delta = edate - sdate
@@ -578,11 +599,14 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     # sort the file list alphanumerically
     file_list.sort()
 
-    # Classify files (for now skip files believed to be recorded in broadband mode)
-    classifications = classify_recording_mode(file_list, threshold_minutes=30)
-    file_list = [file for file, mode in classifications if mode == "narrowband"]
-    if not file_list:
-        return None
+    # AZFP and EK60 have no broadband mode -- this heuristic is only meaningful for
+    # EK80, where it filters out files believed to be recorded in broadband mode
+    # (broadband processing is not currently supported by this pipeline).
+    if zpls_model == 'EK80':
+        classifications = classify_recording_mode(file_list, threshold_minutes=30)
+        file_list = [file for file, mode in classifications if mode != "broadband"]
+        if not file_list:
+            return None
 
     # Use a list comprehension with a tqdm progress bar to process the files sequentially
     desc = f'Converting and processing {len(file_list)} raw {zpls_model} data files'
@@ -771,6 +795,10 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
     deployed_depth = kwargs.get('deployed_depth')
     vertical_range = kwargs.get('vertical_range')
     colorbar_range = kwargs.get('colorbar_range')
+
+    # normalize the date range (handles single-day, single-month, and explicit
+    # start/stop input) before dates[1] is accessed below
+    dates = normalize_date_range(dates)
 
     # make sure the data output directory exists
     output_directory = os.path.join(output_directory, dates[0] + '-' + dates[1])
