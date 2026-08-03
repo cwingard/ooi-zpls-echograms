@@ -95,7 +95,7 @@ site_config = {
         'instrument_orientation': 'up'
     },
     'CP01CNSM': {
-        'long_name': 'Coastal Pioneer, Central Surface Mooring',
+        'long_name': 'Coastal Pioneer New England Shelf, Central Surface Mooring',
         'tilt_correction': 15,
         'colorbar_range': [-90, -50],
         'vertical_range': [0, 135],
@@ -106,7 +106,7 @@ site_config = {
         'instrument_orientation': 'up'
     },
     'CP03ISSM': {
-        'long_name': 'Coastal Pioneer, Inshore Surface Mooring',
+        'long_name': 'Coastal Pioneer New England Shelf, Inshore Surface Mooring',
         'tilt_correction': 15,
         'colorbar_range': [-90, -50],
         'vertical_range': [0, 95],
@@ -117,7 +117,7 @@ site_config = {
         'instrument_orientation': 'up'
     },
     'CP04OSSM': {
-        'long_name': 'Coastal Pioneer, Offshore Surface Mooring',
+        'long_name': 'Coastal Pioneer New England Shelf, Offshore Surface Mooring',
         'tilt_correction': 15,
         'colorbar_range': [-90, -50],
         'vertical_range': [0, 455],
@@ -125,6 +125,39 @@ site_config = {
         'depth_offset': 1.0,
         'average_salinity': 35,
         'average_temperature': 12,
+        'instrument_orientation': 'up'
+    },
+    'CP10CNSM': {
+        'long_name': 'Coastal Pioneer Mid-Atlantic Bight, Central Surface Mooring',
+        'tilt_correction': 15,
+        'colorbar_range': [-90, -50],
+        'vertical_range': [0, 30],
+        'deployed_depth': 30,
+        'depth_offset': 1.0,
+        'average_salinity': 35,
+        'average_temperature': 13,
+        'instrument_orientation': 'up'
+    },
+    'CP11NOSM': {
+        'long_name': 'Coastal Pioneer Mid-Atlantic Bight, Northern Surface Mooring',
+        'tilt_correction': 15,
+        'colorbar_range': [-90, -50],
+        'vertical_range': [0, 100],
+        'deployed_depth': 100,
+        'depth_offset': 1.0,
+        'average_salinity': 35,
+        'average_temperature': 13,
+        'instrument_orientation': 'up'
+    },
+    'CP11SOSM': {
+        'long_name': 'Coastal Pioneer Mid-Atlantic Bight, Southern Surface Mooring',
+        'tilt_correction': 15,
+        'colorbar_range': [-90, -50],
+        'vertical_range': [0, 100],
+        'deployed_depth': 100,
+        'depth_offset': 1.0,
+        'average_salinity': 35,
+        'average_temperature': 13,
         'instrument_orientation': 'up'
     },
     'GI02HYPM_UPPER': {
