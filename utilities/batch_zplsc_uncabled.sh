@@ -5,11 +5,14 @@
 #
 # C. Wingard 2021-11-10
 #
-# NOTE: CONDA_SH below is host-specific and MUST be set correctly for the
-# machine this script runs on -- especially if invoked from cron, which does
-# not source .bashrc/.profile and so cannot rely on $CONDA_EXE or anything
-# else from an interactive shell's environment.
-CONDA_SH="/home/ooiuser/miniconda3/etc/profile.d/conda.sh"   # e.g. /opt/ooidata/miniconda3/etc/profile.d/conda.sh
+# NOTE: CONDA_SH is host/container-specific and MUST resolve to a valid
+# conda.sh for the environment this script runs in -- especially if invoked
+# from cron, which does not source .bashrc/.profile and so cannot rely on
+# $CONDA_EXE or anything else from an interactive shell's environment.
+# Override by setting CONDA_SH in the calling environment (e.g. via `podman
+# run -e CONDA_SH=/opt/conda/etc/profile.d/conda.sh`); otherwise this falls
+# back to the host default below.
+CONDA_SH="${CONDA_SH:-/home/ooiuser/miniconda3/etc/profile.d/conda.sh}"
 
 set -euo pipefail
 
