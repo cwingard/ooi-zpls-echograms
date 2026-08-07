@@ -800,7 +800,20 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     if not daily_averages:
         return None, nc_files
 
-    avg_chunk = xr.concat(daily_averages, dim='ping_time')
+    # concatenate the per-day averaged datasets the same way individual files
+    # are combined within a day -- plain concat only aligns on ping_time, and
+    # if a day's echo_range/range_sample grid doesn't exactly match another
+    # day's (the same file-to-file variation combine_by_coords already
+    # handles within a day), it silently pads mismatched positions with NaN
+    # rather than reconciling them, which then breaks plotting downstream
+    try:
+        avg_chunk = xr.combine_by_coords(daily_averages, join='outer', combine_attrs='override')
+    except ValueError:
+        avg_chunk = xr.concat(daily_averages, dim='ping_time', join='outer', combine_attrs='override')
+        if 'ping_time' in avg_chunk.echo_range.indexes.keys():
+            avg_chunk['echo_range'] = avg_chunk['echo_range'].sel(ping_time=avg_chunk.ping_time[0], drop=True)
+            avg_chunk['nominal_depth'] = avg_chunk['nominal_depth'].sel(ping_time=avg_chunk.ping_time[0], drop=True)
+
     avg_chunk = avg_chunk.sortby('ping_time')
     _, index = np.unique(avg_chunk['ping_time'], return_index=True)
     avg_chunk = avg_chunk.isel(ping_time=index)
