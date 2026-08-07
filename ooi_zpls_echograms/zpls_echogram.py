@@ -865,19 +865,13 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
     data['frequency_nominal'] = data['frequency_nominal'].astype(np.float32)
     data['Sv'] = data['Sv'].astype(np.float32)
 
-    # split the data into daily records
-    days, datasets = zip(*data.groupby("ping_time.day"))
-
-    # create a list of file names based on the day of the record
-    start = datetime.strptime(dates[0], '%Y%m%d')
-    stop = datetime.strptime(dates[1], '%Y%m%d')
-    date_list = [start + timedelta(days=x) for x in range(0, (stop - start).days)]
+    # group by full calendar date (not day-of-month) so that ping data spilling across a
+    # month or requested-range boundary is not silently dropped or mismatched with the
+    # wrong file name -- each group is paired with its file name directly from the group's
+    # own date, rather than cross-referenced against a separately built date_list
+    dates_present, datasets = zip(*data.groupby(data.ping_time.dt.floor("D")))
     nc_file = os.path.join(output_directory, file_name)
-    nc_files = []
-    for day in days:
-        for dt in date_list:
-            if dt.day == day:
-                nc_files.append(nc_file + "_Full_%s.nc" % dt.strftime('%Y%m%d'))
+    nc_files = [nc_file + "_Full_%s.nc" % pd.Timestamp(d).strftime('%Y%m%d') for d in dates_present]
 
     # convert ping_time from a datetime64[ns] object to a float (seconds since 1970) and update the attributes
     for dataset in datasets:
