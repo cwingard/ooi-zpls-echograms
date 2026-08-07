@@ -733,8 +733,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         echo = [e for e in echo if e is not None]
         if not echo:
             # this day (including its buffer) produced no usable data -- skip it
-            # and move on, matching the existing "no data" handling but at day
-            # granularity instead of failing the whole chunk
+            # and move on
             continue
 
         try:
@@ -781,7 +780,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         # resample using the FULL day_ds (own day + buffer) so the last bin
         # of the day is computed correctly, then trim any bin that landed on
         # the next day before keeping this day's averaged result
-        resample_ds = day_ds.dropna('range_sample', subset=['echo_range'])
+        resample_ds = day_ds.copy()
         resample_ds['ping_time'] = resample_ds['ping_time'] + time_shift
         day_avg = resample_ds.resample(ping_time=resample_freq).mean(dim='ping_time', skipna=True, keep_attrs=True)
         day_avg = day_avg.interpolate_na(dim='ping_time', max_gap=max_gap)
@@ -801,11 +800,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         return None, nc_files
 
     # concatenate the per-day averaged datasets the same way individual files
-    # are combined within a day -- plain concat only aligns on ping_time, and
-    # if a day's echo_range/range_sample grid doesn't exactly match another
-    # day's (the same file-to-file variation combine_by_coords already
-    # handles within a day), it silently pads mismatched positions with NaN
-    # rather than reconciling them, which then breaks plotting downstream
+    # are combined within a day
     try:
         avg_chunk = xr.combine_by_coords(daily_averages, join='outer', combine_attrs='override')
     except ValueError:
@@ -817,6 +812,9 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     avg_chunk = avg_chunk.sortby('ping_time')
     _, index = np.unique(avg_chunk['ping_time'], return_index=True)
     avg_chunk = avg_chunk.isel(ping_time=index)
+
+    # trim NaN range_sample bins once, over the fully assembled chunk
+    avg_chunk = avg_chunk.dropna('range_sample', subset=['echo_range'])
 
     return avg_chunk, nc_files
 
