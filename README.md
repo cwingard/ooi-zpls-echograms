@@ -18,21 +18,24 @@ the bioacoustic sonar sensors (a total of 17) are deployed.
 broadband recordings are automatically detected and skipped (see Usage Notes) via a time-gap heuristic that is
 approximately 99% effective -- a small fraction of broadband files may still pass through and require manual review.
 
-| Array | Site | Sensor Model | Depth | Description |
-| :---: | :---: | :---: | :---: | :--- |
-| Coastal Endurance | [CE01ISSM](https://oceanobservatories.org/site/ce01issm/) | AZFP | 25 m | Oregon Inshore Surface Mooring |
-| Coastal Endurance | [CE02SHBP](https://oceanobservatories.org/site/ce02shbp/) | EK60/EK80 | 80 m | Oregon Shelf Cabled Benthic Experiment Package  |
-| Coastal Endurance | [CE04OSPS](https://oceanobservatories.org/site/ce04osps/) | EK60/EK80 | 200 m | Oregon Offshore Cabled Shallow Profiler Mooring |
-| Coastal Endurance | [CE06ISSM](https://oceanobservatories.org/site/ce06issm/) | AZFP | 29 m | Washington Inshore Surface Mooring |
-| Coastal Endurance | [CE07SHSM](https://oceanobservatories.org/site/ce07shsm/) | AZFP | 87 m | Washington Shelf Surface Mooring |
-| Coastal Endurance | [CE09OSSM](https://oceanobservatories.org/site/ce09ossm/) | AZFP | 542 m | Washington Offshore Surface Mooring |
-| Coastal Pioneer | [CP03ISSM](https://oceanobservatories.org/site/cp03issm/) | AZFP | 95 m | Inshore Surface Mooring |
-| Coastal Pioneer | [CP01CNSM](https://oceanobservatories.org/site/cp01cnsm/) | AZFP | 135 m | Central Surface Mooring |
-| Coastal Pioneer | [CP04OSSM](https://oceanobservatories.org/site/cp04ossm/) | AZFP | 450 m | Offshore Surface Mooring |
-| Global Argentine Basin | [GA02HYPM](https://oceanobservatories.org/site/ga02hypm/) | AZFP | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
-| Global Irminger Sea | [GI02HYPM](https://oceanobservatories.org/site/gi02hypm/) | AZFP | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
-| Global Station Papa | [GP02HYPM](https://oceanobservatories.org/site/gp02hypm/) | AZFP | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
-| Global Southern Ocean | [GS02HYPM](https://oceanobservatories.org/site/gs02hypm/) | AZFP | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
+|         Array          |                           Site                            | Sensor Model | Depth | Description                                                     |
+|:----------------------:|:---------------------------------------------------------:|:------------:|:-----:|:----------------------------------------------------------------|
+|   Coastal Endurance    | [CE01ISSM](https://oceanobservatories.org/site/ce01issm/) |     AZFP     | 25 m  | Oregon Inshore Surface Mooring                                  |
+|   Coastal Endurance    | [CE02SHBP](https://oceanobservatories.org/site/ce02shbp/) |  EK60/EK80   | 80 m  | Oregon Shelf Cabled Benthic Experiment Package                  |
+|   Coastal Endurance    | [CE04OSPS](https://oceanobservatories.org/site/ce04osps/) |  EK60/EK80   | 200 m | Oregon Offshore Cabled Shallow Profiler Mooring                 |
+|   Coastal Endurance    | [CE06ISSM](https://oceanobservatories.org/site/ce06issm/) |     AZFP     | 29 m  | Washington Inshore Surface Mooring                              |
+|   Coastal Endurance    | [CE07SHSM](https://oceanobservatories.org/site/ce07shsm/) |     AZFP     | 87 m  | Washington Shelf Surface Mooring                                |
+|   Coastal Endurance    | [CE09OSSM](https://oceanobservatories.org/site/ce09ossm/) |     AZFP     | 542 m | Washington Offshore Surface Mooring                             |
+|  Coastal Pioneer NES   | [CP03ISSM](https://oceanobservatories.org/site/cp03issm/) |     AZFP     | 95 m  | Inshore Surface Mooring                       |
+|  Coastal Pioneer NES   | [CP01CNSM](https://oceanobservatories.org/site/cp01cnsm/) |     AZFP     | 135 m | Central Surface Mooring                       |
+|  Coastal Pioneer NES   | [CP04OSSM](https://oceanobservatories.org/site/cp04ossm/) |     AZFP     | 450 m | Offshore Surface Mooring                      |
+|  Coastal Pioneer MAB   | [CP11NOSM](https://oceanobservatories.org/site/cp11nosm/) |     AZFP     | 95 m  | Northern Surface Mooring                     |
+|  Coastal Pioneer MAB   | [CP10CNSM](https://oceanobservatories.org/site/cp10cnsm/) |     AZFP     | 135 m | Central Surface Mooring                      |
+|  Coastal Pioneer MAB   | [CP11SOSM](https://oceanobservatories.org/site/cp11sosm/) |     AZFP     | 450 m | Southern Surface Mooring                     |
+| Global Argentine Basin | [GA02HYPM](https://oceanobservatories.org/site/ga02hypm/) |     AZFP     | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
+|  Global Irminger Sea   | [GI02HYPM](https://oceanobservatories.org/site/gi02hypm/) |     AZFP     | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
+|  Global Station Papa   | [GP02HYPM](https://oceanobservatories.org/site/gp02hypm/) |     AZFP     | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
+| Global Southern Ocean  | [GS02HYPM](https://oceanobservatories.org/site/gs02hypm/) |     AZFP     | 150 m | Apex Profiler Mooring, both upward and downward looking sensors |
 
 [Echopype](https://echopype.readthedocs.io/en/latest/), the open-source ocean sonar data processing module, is utilized 
 to process the OOI bioacoustic sonar data from the cabled and uncabled sensors to generate weekly echograms that 
