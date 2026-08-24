@@ -803,6 +803,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         day_ds = day_ds.sortby('ping_time')
         _, index = np.unique(day_ds['ping_time'], return_index=True)
         day_ds = day_ds.isel(ping_time=index)
+        day_ds = day_ds.sortby('frequency_nominal')
         range_correction(day_ds, tilt_correction)
 
         # reset data types (matches the whole-chunk behavior this replaces)
