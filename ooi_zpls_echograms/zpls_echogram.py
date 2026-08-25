@@ -946,12 +946,10 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
         ds['Platform']['platform_type'] = 'Mooring'   # ICES platform class 48
 
     # process the data, calculating the volume acoustic backscatter strength and the vertical range
-    waveform = []  # default for the AZFP and EK60
-    encode = []    # default for the AZFP and EK60
+    waveform = 'CW'  # defaults for the EK60 and EK80
+    encode = 'power'
     if zpls_model == 'EK80':
         # setting as defaults for the EK80 (note, this only support narrowband processing at this time)
-        waveform = 'CW'
-        encode = 'power'
         try:
             ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params, waveform_mode=waveform, encode_mode=encode)
         except Exception as e:
@@ -963,9 +961,11 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
                 n = gc.collect()
 
             return None
-    else:
-        # the AZFP and EK60 are narrowband
+    elif zpls_model == 'EK60':
         ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params, waveform_mode=waveform, encode_mode=encode)
+    else:
+        # AZFP processing, no waveform or encoding required
+        ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params)
 
     # Correct reversed ping times
     if exist_reversed_time(ds_sv, "ping_time"):
