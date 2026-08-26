@@ -456,7 +456,7 @@ def normalize_date_range(dates):
     """
     Normalize the user-supplied date range into a (start, stop) pair of
     YYYYMMDD strings, where stop is an exclusive upper bound (i.e. the
-    range covers [start, stop), matching the convention used by the
+    range covers [start, stop], matching the convention used by the
     weekly batch scripts). Handles three input shapes:
       - a single YYYYMMDD day        -> (day, day + 1)
       - a single YYYYMM month        -> (first-of-month, first-of-next-month)
@@ -592,22 +592,46 @@ def classify_recording_mode(filepaths: List[str], threshold_minutes: float = 30)
     return results
 
 
+def _parse_file_datetime(filepath):
+    """
+    Parse the recording datetime embedded in a raw sonar filename, handling
+    both filename conventions used across instrument types:
+      - EK60/EK80: 'D{YYYYMMDD}-T{HHMMSS}' embedded anywhere in the name
+        (e.g. 'ZPLSCB101-D20250810-T011824.raw')
+      - AZFP: file name is 'yymmddHH.01A' (e.g. '19101307.01A'; year assumed
+        20xx)
+
+    :param filepath: path to a raw sonar data file.
+    :return: parsed datetime, or None if neither convention matches.
+    """
+    match = re.search(r"D(\d{8})-T(\d{6})", filepath)
+    if match:
+        return datetime.strptime(match.group(1) + match.group(2), "%Y%m%d%H%M%S")
+
+    stem = Path(filepath).stem
+    match = re.fullmatch(r"(\d{8})", stem)
+    if match:
+        return datetime.strptime('20' + match.group(1), "%Y%m%d%H")
+
+    return None
+
+
 def _group_files_by_day(file_list):
     """
-    Group an already-classified, already-sorted flat file list into an
-    OrderedDict keyed by YYYYMMDD (as parsed from the D{YYYYMMDD}-T{HHMMSS}
-    token in each filename), preserving chronological order both across
-    and within days.
+    Group an already-sorted flat file list into an OrderedDict keyed by
+    YYYYMMDD, preserving chronological order both across and within days.
+    Supports both EK60/EK80 and AZFP filename conventions via
+    _parse_file_datetime.
 
     :param file_list: flat, sorted list of file paths.
     :return: OrderedDict of {YYYYMMDD: [file paths for that day]}.
     """
     grouped = OrderedDict()
     for f in file_list:
-        match = re.search(r"D(\d{8})-T\d{6}", f)
-        if not match:
+        dt = _parse_file_datetime(f)
+        if dt is None:
             continue
-        day_key = match.group(1)
+        day_key = dt.strftime('%Y%m%d')
         grouped.setdefault(day_key, []).append(f)
     return grouped
 
@@ -630,10 +654,9 @@ def _forward_buffer_files(next_day_files, bin_width):
     width = pd.Timedelta(bin_width)
     buffer_files = []
     for f in next_day_files:
-        match = re.search(r"D(\d{8})-T(\d{6})", f)
-        if not match:
+        dt = _parse_file_datetime(f)
+        if dt is None:
             continue
-        dt = datetime.strptime(match.group(1) + match.group(2), "%Y%m%d%H%M%S")
         day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
         if dt - day_start <= width:
             buffer_files.append(f)
@@ -644,29 +667,21 @@ def _forward_buffer_files(next_day_files, bin_width):
     return buffer_files
 
 
-def _previous_day_last_file(data_directory, start_date_str, zpls_model, xml_file=None):
+def _previous_day_last_file(data_directory, start_date_str, zpls_model):
     """
     Find the last file (by sorted filename) recorded on the calendar day
     immediately before start_date_str. Used as the backward buffer for the
     FIRST day of a requested range, since a file recorded late the day
     before a range starts can run past midnight into the range's first
     real day -- without this, that data is silently invisible, because
-    ek_file_list/azfp_file_list only ever glob folders within the
+    ek_file_list/azfp_file_list only globs folders within the
     requested range.
-
-    KNOWN LIMITATION: does not handle a year boundary (e.g. a range
-    starting 2025-01-01, whose previous day 2024-12-31 lives under a
-    different year's data_directory). Rare in practice for this pipeline's
-    typical weekly/monthly chunk boundaries, but worth fixing if a range
-    ever legitimately starts on January 1st.
 
     :param data_directory: path to directory with the raw files (same
         directory passed to ek_file_list/azfp_file_list).
     :param start_date_str: YYYYMMDD string, the first day of the requested
         range (i.e. dates[0] after normalize_date_range).
     :param zpls_model: Model of bioacoustic sonar sensor used.
-    :param xml_file: unused, accepted for signature symmetry with the
-        AZFP/EK glob helpers.
     :return: path to the last file from the previous day, or None if there
         isn't one.
     """
@@ -675,7 +690,22 @@ def _previous_day_last_file(data_directory, start_date_str, zpls_model, xml_file
         pattern = (os.path.join(data_directory, prev_day.strftime('%Y%m')) + '/'
                    + prev_day.strftime('%y%m%d') + '*.01A')
     else:
-        pattern = os.path.join(data_directory, prev_day.strftime('%m'), prev_day.strftime('%d')) + '/*.raw'
+        # EK60/EK80's directory structure is year-scoped. If the requested
+        # range starts on Jan 1st, the previous day (Dec 31) falls in a
+        # different year, swap the year component.
+        current_year = start_date_str[:4]
+        prev_year = prev_day.strftime('%Y')
+        if prev_year != current_year:
+            normalized = os.path.normpath(data_directory)
+            if os.path.basename(normalized) == current_year:
+                search_dir = os.path.join(os.path.dirname(normalized), prev_year)
+            else:
+                # data_directory doesn't end in the expected current year
+                return None
+        else:
+            search_dir = data_directory
+        pattern = os.path.join(search_dir, prev_day.strftime('%m'), prev_day.strftime('%d')) + '/*.raw'
+
     prev_files = sorted(glob.glob(pattern))
     return prev_files[-1] if prev_files else None
 
@@ -771,7 +801,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         forward_buffer = _forward_buffer_files(next_day_files, resample_freq)
 
         # backward buffer: always pull the immediately preceding file, whole --
-        # file durations vary and we can't cheaply know whether a file spans
+        # file durations vary, and we can't cheaply know whether a file spans
         # into this day without converting it, so we always include the prior
         # file and let the ping_time-based masks below sort out what actually
         # belongs to this day vs. was already written out by the previous one
@@ -917,7 +947,7 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
         # if this file was already converted (e.g. it's a boundary file that
         # was already processed as the previous day's own/forward-buffer
         # file, and is now being reprocessed as the next day's backward
-        # buffer), read the existing converted store instead of re-parsing
+        # buffer), read the existing converted store instead of reparsing
         # the raw file -- also avoids a second to_zarr/to_netcdf write below
         # against a path that already exists (overwrite=False there is not
         # confirmed to silently no-op on an existing store)
@@ -975,8 +1005,10 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     # calculate the depth from the range
     ds_sv = ep.consolidate.add_depth(ds_sv, ds, depth_offset=depth_offset, tilt=tilt_correction, downward=downward)
 
-    # add the split-beam angle
-    ds_sv = ep.consolidate.add_splitbeam_angle(ds_sv, ds, waveform_mode=waveform, encode_mode=encode, to_disk=False)
+    # add the split-beam angle -- only meaningful for EK60/EK80
+    if zpls_model in ('EK60', 'EK80'):
+        ds_sv = ep.consolidate.add_splitbeam_angle(ds_sv, ds, waveform_mode=waveform, encode_mode=encode,
+                                                    to_disk=False)
 
     # convert the channel dimension to frequency
     ds_sv = ep.consolidate.swap_dims_channel_frequency(ds_sv)
