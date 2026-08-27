@@ -4,6 +4,17 @@
 # or EK80 bioacoustic sonar sensor.
 #
 # C. Wingard 2021-11-10
+#
+# NOTE: CONDA_SH is host/container-specific and MUST resolve to a valid
+# conda.sh for the environment this script runs in -- especially if invoked
+# from cron, which does not source .bashrc/.profile and so cannot rely on
+# $CONDA_EXE or anything else from an interactive shell's environment.
+# Override by setting CONDA_SH in the calling environment (e.g. via `podman
+# run -e CONDA_SH=/opt/conda/etc/profile.d/conda.sh`); otherwise this falls
+# back to the host default below.
+CONDA_SH="${CONDA_SH:-/home/ooiuser/miniconda3/etc/profile.d/conda.sh}"
+
+set -euo pipefail
 
 # Parse the command line inputs, setting the data directories and processing dates
 if [ $# -ne 6 ]; then
@@ -23,25 +34,47 @@ PROC_DIR=$4
 START_DATE=`date -u +%Y%m%d -d $5`
 END_DATE=`date -u +%Y%m%d -d $6`
 
-# activate the echogram environment and cd to the ooi_zpls_echograms code directory
-. $(dirname $CONDA_EXE)/../etc/profile.d/conda.sh
-conda activate echogram
-cd ~/Documents/GitHub/ooi-zpls-echograms/ooi_zpls_echograms
+# activate the echogram environment
+. "$CONDA_SH" || { echo "$0: failed to source $CONDA_SH" >&2; exit 1; }
+conda activate echogram || { echo "$0: failed to activate 'echogram' env" >&2; exit 1; }
+
+# LOG_DIR is where per-chunk stdout/stderr goes -- with N workers running concurrently,
+# a single shared log interleaves output in ways that are hard to read and easy to
+# misread (a genuinely empty week's short message can land visually inside another
+# worker's progress bar output). Override via `-e LOG_DIR=...`; defaults to the ops
+# folder alongside the Containerfile, not the processed-output tree.
+LOG_DIR="${LOG_DIR:-/zplsc_processing/logs/$SITE}"
+mkdir -p "$LOG_DIR"
 
 # Set up concurrent parallel processing using 4 cores (equates to 4 weeks)
 N=4
+FAILED=0
+PIDS=()
 
 # process the data, using 2012-01-01 as the base year for all plots
 for d in $(seq $(date -u +%s -d "2012-01-01") +604800 $(date -u +%s -d $END_DATE)); do
     start_date=`date -u +%Y%m%d -d @$d`
     stop_date=`date -u +%Y%m%d -d "$start_date+7days"`
     if [[ $stop_date -gt $START_DATE ]]; then 
-        (./zpls_echogram.py -s $SITE -d $DATA_DIR -o $PROC_DIR -dr $start_date $stop_date -zm $ZPLS_MODEL) &
+        chunk_log="$LOG_DIR/${start_date}_${stop_date}.log"
+        (zpls-echogram -s $SITE -d $DATA_DIR -o $PROC_DIR -dr $start_date $stop_date -zm $ZPLS_MODEL) \
+            > "$chunk_log" 2>&1 &
+        PIDS+=($!)
     fi
-    if [[ $(jobs -r -p | wc -l) -ge $N ]]; then
-        # there are already $N jobs running in parallel, wait for one to finish
-        wait -n
+    if (( ${#PIDS[@]} >= N )); then
+        # there are already $N jobs outstanding, wait for the oldest to finish
+        wait "${PIDS[0]}" || { echo "$0: job (PID ${PIDS[0]}) failed, see $LOG_DIR" >&2; FAILED=1; }
+        PIDS=("${PIDS[@]:1}")
     fi
 done
-# no more jobs to run, but wait for the last ones to finish
-wait
+# no more jobs to run, but wait for the remaining ones to finish
+if (( ${#PIDS[@]} > 0 )); then
+    for pid in "${PIDS[@]}"; do
+        wait "$pid" || { echo "$0: job (PID $pid) failed, see $LOG_DIR" >&2; FAILED=1; }
+    done
+fi
+
+if (( FAILED != 0 )); then
+    echo "$0: one or more processing jobs failed, see messages above" >&2
+    exit 1
+fi

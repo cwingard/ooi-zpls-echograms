@@ -15,7 +15,7 @@ import re
 import warnings
 import xarray as xr
 
-from calendar import monthrange
+from collections import OrderedDict
 from datetime import datetime, date, timedelta
 from echopype.qc import exist_reversed_time, coerce_increasing_time
 from importlib.resources import files
@@ -96,7 +96,7 @@ site_config = {
         'instrument_orientation': 'up'
     },
     'CP01CNSM': {
-        'long_name': 'Coastal Pioneer, Central Surface Mooring',
+        'long_name': 'Coastal Pioneer New England Shelf, Central Surface Mooring',
         'tilt_correction': 15,
         'colorbar_range': [-90, -50],
         'vertical_range': [0, 135],
@@ -107,7 +107,7 @@ site_config = {
         'instrument_orientation': 'up'
     },
     'CP03ISSM': {
-        'long_name': 'Coastal Pioneer, Inshore Surface Mooring',
+        'long_name': 'Coastal Pioneer New England Shelf, Inshore Surface Mooring',
         'tilt_correction': 15,
         'colorbar_range': [-90, -50],
         'vertical_range': [0, 95],
@@ -118,7 +118,7 @@ site_config = {
         'instrument_orientation': 'up'
     },
     'CP04OSSM': {
-        'long_name': 'Coastal Pioneer, Offshore Surface Mooring',
+        'long_name': 'Coastal Pioneer New England Shelf, Offshore Surface Mooring',
         'tilt_correction': 15,
         'colorbar_range': [-90, -50],
         'vertical_range': [0, 455],
@@ -126,6 +126,39 @@ site_config = {
         'depth_offset': 1.0,
         'average_salinity': 35,
         'average_temperature': 12,
+        'instrument_orientation': 'up'
+    },
+    'CP10CNSM': {
+        'long_name': 'Coastal Pioneer Mid-Atlantic Bight, Central Surface Mooring',
+        'tilt_correction': 15,
+        'colorbar_range': [-90, -50],
+        'vertical_range': [0, 30],
+        'deployed_depth': 30,
+        'depth_offset': 1.0,
+        'average_salinity': 33.6,
+        'average_temperature': 14.1,
+        'instrument_orientation': 'up'
+    },
+    'CP11NOSM': {
+        'long_name': 'Coastal Pioneer Mid-Atlantic Bight, Northern Surface Mooring',
+        'tilt_correction': 15,
+        'colorbar_range': [-90, -50],
+        'vertical_range': [0, 100],
+        'deployed_depth': 100,
+        'depth_offset': 1.0,
+        'average_salinity': 34.6,
+        'average_temperature': 12.1,
+        'instrument_orientation': 'up'
+    },
+    'CP11SOSM': {
+        'long_name': 'Coastal Pioneer Mid-Atlantic Bight, Southern Surface Mooring',
+        'tilt_correction': 15,
+        'colorbar_range': [-90, -50],
+        'vertical_range': [0, 100],
+        'deployed_depth': 100,
+        'depth_offset': 1.0,
+        'average_salinity': 34.4,
+        'average_temperature': 12.2,
         'instrument_orientation': 'up'
     },
     'GI02HYPM_UPPER': {
@@ -275,9 +308,9 @@ attributes = {
     },
     'Sv': {
         'long_name': 'Volume Acoustic Backscatter Strength (Sv re 1 m-1)',
-        'units': 'dB ',
-        'comments': ('Initial estimate of the volume acoustic backscatter strength derived from the raw instrument '
-                     'data using echopype to convert and process the data.'),
+        'units': 'dB',
+        'comment': ('Initial estimate of the volume acoustic backscatter strength derived from the raw instrument '
+                    'data using echopype to convert and process the data.'),
         'ooi_data_product': 'SONBSCA_L1'
     }
 }
@@ -419,6 +452,40 @@ def range_correction(data, tilt_correction):
     data['echo_range'] = data.echo_range * np.cos(np.deg2rad(tilt_correction))
 
 
+def normalize_date_range(dates):
+    """
+    Normalize the user-supplied date range into a (start, stop) pair of
+    YYYYMMDD strings, where stop is an exclusive upper bound (i.e. the
+    range covers [start, stop], matching the convention used by the
+    weekly batch scripts). Handles three input shapes:
+      - a single YYYYMMDD day        -> (day, day + 1)
+      - a single YYYYMM month        -> (first-of-month, first-of-next-month)
+      - two explicit start/stop tokens (YYYYMMDD or YYYYMM), used as-is
+
+    Idempotent: calling this again on an already-normalized pair is a no-op,
+    so it is safe to call from multiple entry points.
+
+    :param dates: list of 1 or 2 date strings from the -dr argument.
+    :return: [start, stop] as YYYYMMDD strings, exclusive stop.
+    """
+    if len(dates) == 1:
+        if len(dates[0]) == 6:
+            dates = [dates[0], dates[0]]
+        else:
+            dates = [dates[0], (dparser.parse(dates[0]) + timedelta(days=1)).strftime('%Y%m%d')]
+
+    if len(dates[0]) == 6:
+        dates[0] = dates[0] + '01'
+        end_year = int(dates[1][:4])
+        end_month = int(dates[1][4:6])
+        if end_month == 12:
+            dates[1] = '%04d0101' % (end_year + 1)
+        else:
+            dates[1] = '%04d%02d01' % (end_year, end_month + 1)
+
+    return dates
+
+
 def azfp_file_list(data_directory, dates):
     """
     Generate a list of file paths pointing to the .01A files from an AZFP that
@@ -428,13 +495,7 @@ def azfp_file_list(data_directory, dates):
     :param dates: starting and ending dates to use in generating the file list.
     :return: the list of potential .01A file names, including full path.
     """
-    if len(dates) == 1:
-        dates += [dates[0]]
-
-    if len(dates[0]) == 6:
-        dates[0] = dates[0] + '01'
-        dates[1] = dates[1] + str(monthrange(int(dates[1][:4]), int(dates[1][4:]))[1])
-
+    dates = normalize_date_range(dates)
     sdate = dparser.parse(dates[0])
     edate = dparser.parse(dates[1]) - timedelta(days=1)
     delta = edate - sdate
@@ -458,13 +519,7 @@ def ek_file_list(data_directory, dates):
     :param dates: starting and ending dates to use in generating the file list.
     :return: the .raw file names, including full path.
     """
-    if len(dates) == 1:
-        dates += [dates[0]]
-
-    if len(dates[0]) == 6:
-        dates[0] = dates[0] + '01'
-        dates[1] = dates[1] + str(monthrange(int(dates[1][:4]), int(dates[1][4:]))[1])
-
+    dates = normalize_date_range(dates)
     sdate = dparser.parse(dates[0])
     edate = dparser.parse(dates[1]) - timedelta(days=1)
     delta = edate - sdate
@@ -537,18 +592,151 @@ def classify_recording_mode(filepaths: List[str], threshold_minutes: float = 30)
     return results
 
 
-def process_sonar_data(site, data_directory, output_directory, dates, zpls_model, xml_file, tilt_correction):
+def _parse_file_datetime(filepath):
+    """
+    Parse the recording datetime embedded in a raw sonar filename, handling
+    both filename conventions used across instrument types:
+      - EK60/EK80: 'D{YYYYMMDD}-T{HHMMSS}' embedded anywhere in the name
+        (e.g. 'ZPLSCB101-D20250810-T011824.raw')
+      - AZFP: file name is 'yymmddHH.01A' (e.g. '19101307.01A'; year assumed
+        20xx)
+
+    :param filepath: path to a raw sonar data file.
+    :return: parsed datetime, or None if neither convention matches.
+    """
+    match = re.search(r"D(\d{8})-T(\d{6})", filepath)
+    if match:
+        return datetime.strptime(match.group(1) + match.group(2), "%Y%m%d%H%M%S")
+
+    stem = Path(filepath).stem
+    match = re.fullmatch(r"(\d{8})", stem)
+    if match:
+        return datetime.strptime('20' + match.group(1), "%Y%m%d%H")
+
+    return None
+
+
+def _group_files_by_day(file_list):
+    """
+    Group an already-sorted flat file list into an OrderedDict keyed by
+    YYYYMMDD, preserving chronological order both across and within days.
+    Supports both EK60/EK80 and AZFP filename conventions via
+    _parse_file_datetime.
+
+    :param file_list: flat, sorted list of file paths.
+    :return: OrderedDict of {YYYYMMDD: [file paths for that day]}.
+    """
+    grouped = OrderedDict()
+    for f in file_list:
+        dt = _parse_file_datetime(f)
+        if dt is None:
+            continue
+        day_key = dt.strftime('%Y%m%d')
+        grouped.setdefault(day_key, []).append(f)
+    return grouped
+
+
+def _forward_buffer_files(next_day_files, bin_width):
+    """
+    Select the leading files from the next day needed to correctly compute
+    the current day's final resample bin (which spans midnight).
+
+    :param next_day_files: sorted list of file paths for the following day
+        (empty list if this is the last day of the chunk).
+    :param bin_width: pandas offset alias for the resample bin width
+        ('15Min' or '60Min'), used to bound how far into the next day we
+        need to look.
+    :return: list of file paths from next_day_files needed for the buffer.
+    """
+    if not next_day_files:
+        return []
+
+    width = pd.Timedelta(bin_width)
+    buffer_files = []
+    for f in next_day_files:
+        dt = _parse_file_datetime(f)
+        if dt is None:
+            continue
+        day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        if dt - day_start <= width:
+            buffer_files.append(f)
+        else:
+            # files are sorted chronologically, so once we're past the
+            # buffer window there's no need to keep scanning
+            break
+    return buffer_files
+
+
+def _previous_day_last_file(data_directory, start_date_str, zpls_model):
+    """
+    Find the last file (by sorted filename) recorded on the calendar day
+    immediately before start_date_str. Used as the backward buffer for the
+    FIRST day of a requested range, since a file recorded late the day
+    before a range starts can run past midnight into the range's first
+    real day -- without this, that data is silently invisible, because
+    ek_file_list/azfp_file_list only globs folders within the
+    requested range.
+
+    :param data_directory: path to directory with the raw files (same
+        directory passed to ek_file_list/azfp_file_list).
+    :param start_date_str: YYYYMMDD string, the first day of the requested
+        range (i.e. dates[0] after normalize_date_range).
+    :param zpls_model: Model of bioacoustic sonar sensor used.
+    :return: path to the last file from the previous day, or None if there
+        isn't one.
+    """
+    prev_day = datetime.strptime(start_date_str, '%Y%m%d') - timedelta(days=1)
+    if zpls_model == 'AZFP':
+        pattern = (os.path.join(data_directory, prev_day.strftime('%Y%m')) + '/'
+                   + prev_day.strftime('%y%m%d') + '*.01A')
+    else:
+        # EK60/EK80's directory structure is year-scoped. If the requested
+        # range starts on Jan 1st, the previous day (Dec 31) falls in a
+        # different year, swap the year component.
+        current_year = start_date_str[:4]
+        prev_year = prev_day.strftime('%Y')
+        if prev_year != current_year:
+            normalized = os.path.normpath(data_directory)
+            if os.path.basename(normalized) == current_year:
+                search_dir = os.path.join(os.path.dirname(normalized), prev_year)
+            else:
+                # data_directory doesn't end in the expected current year
+                return None
+        else:
+            search_dir = data_directory
+        pattern = os.path.join(search_dir, prev_day.strftime('%m'), prev_day.strftime('%d')) + '/*.raw'
+
+    prev_files = sorted(glob.glob(pattern))
+    return prev_files[-1] if prev_files else None
+
+
+def process_sonar_data(site, data_directory, output_directory, dates, zpls_model, xml_file,
+                        tilt_correction, file_name, resample_freq, time_shift, max_gap):
     """
     Use echopype to convert and process the raw bioacoustic sonar data from
-    either an AZFP (in *.01A files), or an EK60/EK80 (in *.raw files) as the
-    first step in the process of generating daily and averaged processed
-    NetCDF files and echograms for use by the community.
+    either an AZFP (in *.01A files), or an EK60/EK80 (in *.raw files).
+    Processes one calendar day at a time rather than the whole requested
+    date range at once: converts, writes that day's full-resolution NetCDF,
+    resamples, and releases the full-resolution data from memory before
+    moving to the next day. This avoids holding an entire multi-day chunk's
+    worth of converted data in memory simultaneously (observed to reach
+    70-177GB per worker on chunks with ~30+ EK80 files/week).
+
+    Each day's resample pass includes a forward buffer -- the leading files
+    of the NEXT day, already within the requested date range -- so the density
+    of the final bin spanning midnight is computed correctly rather than
+    truncated. The buffer never appears in a day's full-resolution NetCDF
+    output, and any resulting bin timestamped on the next day is trimmed
+    before this day's averaged result is kept, so nothing leaks forward and
+    the next day is not shorted when its own turn comes. The last day of the
+    requested range gets no forward buffer, matching how chunks already run
+    independently of neighboring chunks today.
 
     :param site: Site name where the data was collected.
     :param data_directory: Source directory where the raw data files are
         located (assumes a standardized file structure will be followed by the
         OOI operators).
-    :param output_directory: Output directory to save the results
+    :param output_directory: Output directory to save the results.
     :param dates: Starting and ending dates to search for raw data files in the
         data directory to convert and process.
     :param zpls_model: Model of bioacoustic sonar sensor used.
@@ -558,62 +746,171 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     :param tilt_correction: Tilt of the sonar transducers (typically 15
         degrees for the uncabled sensors to minimize interference from the
         riser elements).
-    :return: Converted and processed bioacoustic sonar data in a xarray
-        dataset object for the date range indicated by the dates input,
-        with the object sorted in time and checked to make sure the time
-        record is monotonic.
+    :param file_name: base file name (from set_file_name), used to construct
+        each day's full-resolution NetCDF path.
+    :param resample_freq: pandas resample offset alias, '15Min' or '60Min'.
+    :param time_shift: pd.Timedelta bin-centering shift applied before
+        resampling.
+    :param max_gap: pandas offset alias string passed to interpolate_na's
+        max_gap, e.g. '45Min' or '180Min'.
+    :return: (avg_chunk, nc_files) where avg_chunk is the concatenated,
+        gap-interpolated averaged xarray Dataset for the whole date range
+        (or None if no data was processed), and nc_files is the list of
+        daily full-resolution NetCDF paths written.
     """
-    # generate a list of data files given the input dates
+    # generate and classify the flat file list exactly as before -- broadband
+    # filtering needs global, cross-day context to be accurate, so this stays
+    # a whole-chunk operation even though conversion below is per-day
     if zpls_model == 'AZFP':
         file_list = azfp_file_list(data_directory, dates)
     else:
         file_list = ek_file_list(data_directory, dates)
 
-    # reset the file_list to a single index
     file_list = [file for sub in file_list for file in sub]
     if not file_list:
-        # if there are no files to process, exit cleanly
-        return None
+        return None, []
 
-    # sort the file list alphanumerically
     file_list.sort()
 
-    # Classify files (for now skip files believed to be recorded in broadband mode)
-    classifications = classify_recording_mode(file_list, threshold_minutes=30)
-    file_list = [file for file, mode in classifications if mode == "narrowband"]
-    if not file_list:
-        return None
+    if zpls_model == 'EK80':
+        classifications = classify_recording_mode(file_list, threshold_minutes=30)
+        file_list = [file for file, mode in classifications if mode != "broadband"]
+        if not file_list:
+            return None, []
 
-    # Use a list comprehension with a tqdm progress bar to process the files sequentially
-    desc = f'Converting and processing {len(file_list)} raw {zpls_model} data files'
-    echo = [_process_file(file, site, output_directory, zpls_model, xml_file, tilt_correction)
-            for file in tqdm(file_list, desc=desc)]
-    echo = [i for i in echo if i is not None]
-    if not echo:
-        # if no files were processed, exit cleanly
-        return None
+    by_day = _group_files_by_day(file_list)
+    day_keys = list(by_day.keys())
+    if not day_keys:
+        return None, []
 
-    # concatenate the data into a single dataset
+    # the very first day of the range has no preceding day inside by_day to
+    # borrow a backward buffer from (that only ever contains days WITHIN the
+    # requested range) -- look one calendar day earlier on disk directly,
+    # using the range's actual start date, not day_keys[0] (which could
+    # differ if the first requested day itself had zero files of its own)
+    range_start = normalize_date_range(list(dates))[0]
+    first_day_backward_file = _previous_day_last_file(data_directory, range_start, zpls_model)
+
+    nc_file = os.path.join(output_directory, file_name)
+    nc_files = []
+    daily_averages = []
+
+    for i, day_key in enumerate(day_keys):
+        day_files = by_day[day_key]
+        next_day_files = by_day[day_keys[i + 1]] if i + 1 < len(day_keys) else []
+        forward_buffer = _forward_buffer_files(next_day_files, resample_freq)
+
+        # backward buffer: always pull the immediately preceding file, whole --
+        # file durations vary, and we can't cheaply know whether a file spans
+        # into this day without converting it, so we always include the prior
+        # file and let the ping_time-based masks below sort out what actually
+        # belongs to this day vs. was already written out by the previous one
+        if i == 0:
+            backward_buffer = [first_day_backward_file] if first_day_backward_file else []
+        else:
+            prev_day_files = by_day[day_keys[i - 1]]
+            backward_buffer = prev_day_files[-1:] if prev_day_files else []
+
+        combined_files = backward_buffer + day_files + forward_buffer
+        desc = f'Converting and processing {len(combined_files)} raw {zpls_model} data files ({day_key})'
+        echo = [_process_file(f, site, output_directory, zpls_model, xml_file, tilt_correction)
+                for f in tqdm(combined_files, desc=desc)]
+        echo = [e for e in echo if e is not None]
+        if not echo:
+            # this day (including its buffer) produced no usable data -- skip it
+            # and move on
+            continue
+
+        try:
+            day_ds = xr.combine_by_coords(echo, join='outer', combine_attrs='override')
+        except ValueError:
+            day_ds = xr.concat(echo, dim='ping_time', join='outer', combine_attrs='override')
+            if 'ping_time' in day_ds.echo_range.indexes.keys():
+                day_ds['echo_range'] = day_ds['echo_range'].sel(ping_time=day_ds.ping_time[0], drop=True)
+                day_ds['nominal_depth'] = day_ds['nominal_depth'].sel(ping_time=day_ds.ping_time[0], drop=True)
+        del echo
+
+        day_ds = day_ds.sortby('ping_time')
+        _, index = np.unique(day_ds['ping_time'], return_index=True)
+        day_ds = day_ds.isel(ping_time=index)
+        day_ds = day_ds.sortby('frequency_nominal')
+        range_correction(day_ds, tilt_correction)
+
+        # reset data types (matches the whole-chunk behavior this replaces)
+        day_ds['range_sample'] = day_ds['range_sample'].astype(np.int32)
+        day_ds['echo_range'] = day_ds['echo_range'].astype(np.float32)
+        day_ds['nominal_depth'] = day_ds['nominal_depth'].astype(np.float32)
+        day_ds['frequency_nominal'] = day_ds['frequency_nominal'].astype(np.float32)
+        day_ds['Sv'] = day_ds['Sv'].astype(np.float32)
+
+        # split off exactly this day's own records (excludes buffer) for the
+        # full-resolution NetCDF write -- the buffer is only ever used to
+        # compute the boundary average bin correctly, never written to the
+        # full-res daily file
+        day_start = datetime.strptime(day_key, '%Y%m%d')
+        day_end = day_start + timedelta(days=1)
+        own_day_mask = (day_ds.ping_time >= np.datetime64(day_start)) & (day_ds.ping_time < np.datetime64(day_end))
+        day_only_ds = day_ds.isel(ping_time=own_day_mask.values)
+
+        day_nc_path = nc_file + "_Full_%s.nc" % day_key
+        write_ds = day_only_ds.copy()
+        write_ds['ping_time'] = write_ds['ping_time'].values.astype(np.float64) / 10.0 ** 9
+        write_ds.attrs = attributes['global']
+        write_ds.attrs['instrument_orientation'] = site_config[site]['instrument_orientation']
+        for v in write_ds.variables:
+            write_ds[v].attrs = attributes[v]
+        write_ds.to_netcdf(day_nc_path, mode='w', format='NETCDF4', engine='h5netcdf')
+        nc_files.append(day_nc_path)
+        del write_ds
+
+        # resample using the FULL day_ds (backward buffer + own day + forward
+        # buffer) so both the first bin (which may start before midnight, if
+        # a file recorded late the previous day ran over) and the last bin
+        # (which spans into the next day) are computed correctly, then trim
+        # to exactly this day's own time range before keeping the averaged
+        # result -- NaN trimming (dropna) is intentionally deferred until all
+        # days are concatenated below, matching the original single-pass
+        # behavior; doing it per-day let each day keep a different subset of
+        # range_sample bins (their echo_range NaN positions can differ
+        # slightly day to day), which broke alignment across days later
+        resample_ds = day_ds.copy()
+        resample_ds['ping_time'] = resample_ds['ping_time'] + time_shift
+        day_avg = resample_ds.resample(ping_time=resample_freq).mean(dim='ping_time', skipna=True, keep_attrs=True)
+        day_avg = day_avg.interpolate_na(dim='ping_time', max_gap=max_gap)
+        day_avg = day_avg.compute()
+        day_avg = day_avg.sel(ping_time=(day_avg.ping_time >= np.datetime64(day_start))
+                                       & (day_avg.ping_time < np.datetime64(day_end)))
+
+        daily_averages.append(day_avg)
+
+        # release the expensive full-resolution data for this day before
+        # moving on -- this is the actual memory fix
+        del day_ds, day_only_ds, resample_ds
+        n = 1
+        while n > 0:
+            n = gc.collect()
+
+    if not daily_averages:
+        return None, nc_files
+
+    # concatenate the per-day averaged datasets the same way individual files
+    # are combined within a day
     try:
-        single_ds = xr.combine_by_coords(echo, join='outer', combine_attrs='override')
+        avg_chunk = xr.combine_by_coords(daily_averages, join='outer', combine_attrs='override')
     except ValueError:
-        single_ds = xr.concat(echo, dim='ping_time', join='outer', combine_attrs='override')
-        if 'ping_time' in single_ds.echo_range.indexes.keys():
-            single_ds['echo_range'] = single_ds['echo_range'].sel(ping_time=single_ds.ping_time[0], drop=True)
-            single_ds['nominal_depth'] = single_ds['nominal_depth'].sel(ping_time=single_ds.ping_time[0], drop=True)
+        avg_chunk = xr.concat(daily_averages, dim='ping_time', join='outer', combine_attrs='override')
+        if 'ping_time' in avg_chunk.echo_range.indexes.keys():
+            avg_chunk['echo_range'] = avg_chunk['echo_range'].sel(ping_time=avg_chunk.ping_time[0], drop=True)
+            avg_chunk['nominal_depth'] = avg_chunk['nominal_depth'].sel(ping_time=avg_chunk.ping_time[0], drop=True)
 
-    del echo
+    avg_chunk = avg_chunk.sortby('ping_time')
+    _, index = np.unique(avg_chunk['ping_time'], return_index=True)
+    avg_chunk = avg_chunk.isel(ping_time=index)
 
-    # sort the data by the time and make sure the time index is unique
-    sorted_ds = single_ds.sortby('ping_time')
-    _, index = np.unique(sorted_ds['ping_time'], return_index=True)
-    sorted_ds = sorted_ds.isel(ping_time=index)
+    # trim NaN range_sample bins once, over the fully assembled chunk
+    avg_chunk = avg_chunk.dropna('range_sample', subset=['echo_range'])
 
-    # correct the range for instrument tilt
-    range_correction(sorted_ds, tilt_correction)
-
-    # pass the final, sorted Sv data back for further processing
-    return sorted_ds
+    return avg_chunk, nc_files
 
 
 def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_correction):
@@ -647,7 +944,20 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
 
     # load the raw file, creating a xarray dataset object
     try:
-        if zpls_model == 'AZFP':
+        # if this file was already converted (e.g. it's a boundary file that
+        # was already processed as the previous day's own/forward-buffer
+        # file, and is now being reprocessed as the next day's backward
+        # buffer), read the existing converted store instead of reparsing
+        # the raw file -- also avoids a second to_zarr/to_netcdf write below
+        # against a path that already exists (overwrite=False there is not
+        # confirmed to silently no-op on an existing store)
+        stem = Path(file).stem
+        converted_ext = '.zarr' if zpls_model == 'EK80' else '.nc'
+        converted_path = Path(output_directory) / (stem + converted_ext)
+        already_converted = converted_path.exists()
+        if already_converted:
+            ds = ep.open_converted(converted_path)
+        elif zpls_model == 'AZFP':
             ds = ep.open_raw(file, sonar_model=zpls_model, xml_path=xml_file)
         else:
             ds = ep.open_raw(file, sonar_model=zpls_model)
@@ -666,12 +976,10 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
         ds['Platform']['platform_type'] = 'Mooring'   # ICES platform class 48
 
     # process the data, calculating the volume acoustic backscatter strength and the vertical range
-    waveform = []  # default for the AZFP and EK60
-    encode = []    # default for the AZFP and EK60
+    waveform = 'CW'  # defaults for the EK60 and EK80
+    encode = 'power'
     if zpls_model == 'EK80':
         # setting as defaults for the EK80 (note, this only support narrowband processing at this time)
-        waveform = 'CW'
-        encode = 'power'
         try:
             ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params, waveform_mode=waveform, encode_mode=encode)
         except Exception as e:
@@ -683,9 +991,11 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
                 n = gc.collect()
 
             return None
-    else:
-        # the AZFP and EK60 are narrowband
+    elif zpls_model == 'EK60':
         ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params, waveform_mode=waveform, encode_mode=encode)
+    else:
+        # AZFP processing, no waveform or encoding required
+        ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params)
 
     # Correct reversed ping times
     if exist_reversed_time(ds_sv, "ping_time"):
@@ -695,8 +1005,10 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     # calculate the depth from the range
     ds_sv = ep.consolidate.add_depth(ds_sv, ds, depth_offset=depth_offset, tilt=tilt_correction, downward=downward)
 
-    # add the split-beam angle
-    ds_sv = ep.consolidate.add_splitbeam_angle(ds_sv, ds, waveform_mode=waveform, encode_mode=encode, to_disk=False)
+    # add the split-beam angle -- only meaningful for EK60/EK80
+    if zpls_model in ('EK60', 'EK80'):
+        ds_sv = ep.consolidate.add_splitbeam_angle(ds_sv, ds, waveform_mode=waveform, encode_mode=encode,
+                                                    to_disk=False)
 
     # convert the channel dimension to frequency
     ds_sv = ep.consolidate.swap_dims_channel_frequency(ds_sv)
@@ -704,12 +1016,14 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     # extract the Sv, range and depth data
     data = ds_sv[['Sv', 'echo_range', 'depth']]
 
-    # save the data to disk (will automatically skip if already created)
-    if zpls_model == 'EK80':
-        # output the files to Zarr (while larger than the NetCDF, faster for the EK80 files)
-        ds.to_zarr(Path(output_directory), overwrite=False)
-    else:
-        ds.to_netcdf(Path(output_directory), overwrite=False)
+    # save the data to disk, skipping if this file was already converted
+    # (already_converted was determined above, before this file was opened)
+    if not already_converted:
+        if zpls_model == 'EK80':
+            # output the files to Zarr (while larger than the NetCDF, faster for the EK80 files)
+            ds.to_zarr(Path(output_directory), overwrite=False)
+        else:
+            ds.to_netcdf(Path(output_directory), overwrite=False)
 
     # clear the echodata objects from memory and clean up after echopype
     del ds, ds_sv
@@ -772,6 +1086,10 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
     vertical_range = kwargs.get('vertical_range')
     colorbar_range = kwargs.get('colorbar_range')
 
+    # normalize the date range (handles single-day, single-month, and explicit
+    # start/stop input) before dates[1] is accessed below
+    dates = normalize_date_range(dates)
+
     # make sure the data output directory exists
     output_directory = os.path.join(output_directory, dates[0] + '-' + dates[1])
     if not os.path.isdir(output_directory):
@@ -782,71 +1100,36 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
         raise ValueError('If the ZPLS model is AZFP, you must specify an XML file with the instrument '
                          'configuration and calibration parameters.')
 
-    # convert and process the data
     if zpls_model not in ['AZFP', 'EK60', 'EK80']:
         raise ValueError('The ZPLS model must be set as either AZFP, EK60 or EK80 (case sensitive)')
+
+    file_name = set_file_name(site, dates)
+
+    # decide resample parameters before processing -- resampling now happens
+    # per-day inside process_sonar_data rather than once over the whole chunk
+    # afterward, so these need to be known up front
+    if 'HYPM' in site:
+        resample_freq = '60Min'
+        time_shift = pd.to_timedelta(30, unit="min")
+        max_gap = '180Min'
     else:
-        data = process_sonar_data(site, data_directory, output_directory, dates, zpls_model, xml_file, tilt_correction)
+        resample_freq = '15Min'
+        time_shift = pd.to_timedelta(450, unit="sec")
+        max_gap = '45Min'
+
+    # convert and process the data, one calendar day at a time, writing and
+    # releasing each day's full-resolution data as it goes rather than
+    # holding the whole chunk in memory simultaneously
+    avg, nc_files = process_sonar_data(site, data_directory, output_directory, dates, zpls_model, xml_file,
+                                        tilt_correction, file_name, resample_freq, time_shift, max_gap)
 
     # test to see if we have any data from the processing
-    if not data:
+    if avg is None:
         print(f'No data files were converted and processed. Check input settings, in particular the path to the raw '
               f'data files (or whether these were broadband files) for dates between {dates[0]} and {dates[1]}.')
         return None
 
-    # save the full resolution processed data to daily NetCDF files
-    file_name = set_file_name(site, dates)
-
-    # reset data types (helps to control size of NetCDF files)
-    data['range_sample'] = data['range_sample'].astype(np.int32)
-    data['echo_range'] = data['echo_range'].astype(np.float32)
-    data['nominal_depth'] = data['nominal_depth'].astype(np.float32)
-    data['frequency_nominal'] = data['frequency_nominal'].astype(np.float32)
-    data['Sv'] = data['Sv'].astype(np.float32)
-
-    # split the data into daily records
-    days, datasets = zip(*data.groupby("ping_time.day"))
-
-    # create a list of file names based on the day of the record
-    start = datetime.strptime(dates[0], '%Y%m%d')
-    stop = datetime.strptime(dates[1], '%Y%m%d')
-    date_list = [start + timedelta(days=x) for x in range(0, (stop - start).days)]
-    nc_file = os.path.join(output_directory, file_name)
-    nc_files = []
-    for day in days:
-        for dt in date_list:
-            if dt.day == day:
-                nc_files.append(nc_file + "_Full_%s.nc" % dt.strftime('%Y%m%d'))
-
-    # convert ping_time from a datetime64[ns] object to a float (seconds since 1970) and update the attributes
-    for dataset in datasets:
-        dataset['ping_time'] = dataset['ping_time'].values.astype(np.float64) / 10.0 ** 9
-        dataset.attrs = attributes['global']
-        dataset.attrs['instrument_orientation'] = site_config[site]['instrument_orientation']
-
-        for v in dataset.variables:
-            dataset[v].attrs = attributes[v]
-
-    # save the daily files
-    xr.save_mfdataset(datasets, nc_files, mode='w', format='NETCDF4', engine='h5netcdf')
-
-    # clean up any NaN's in the range values (some EK60 files seem to have this problem)
-    data = data.dropna('range_sample', subset=['echo_range'])
-
-    # if a global mooring, create hourly averaged data records, otherwise create 15-minute records
-    if 'HYPM' in site:
-        # resample the data into a 60-minute averaged record, filling gaps less than 180 minutes
-        data['ping_time'] = data['ping_time'] + pd.to_timedelta(30, unit="min")
-        avg = data.resample(ping_time='60Min').mean(dim='ping_time', skipna=True, keep_attrs=True)
-        avg = avg.interpolate_na(dim='ping_time', max_gap='180Min')
-    else:
-        # resample the data into a 15-minute averaged record, filling gaps less than 45 minutes
-        data['ping_time'] = data['ping_time'] + pd.to_timedelta(450, unit="sec")
-        avg = data.resample(ping_time='15Min').mean(dim='ping_time', skipna=True, keep_attrs=True)
-        avg = avg.interpolate_na(dim='ping_time', max_gap='45Min')
-
     # generate the echogram
-    avg = avg.compute()
     long_name = site_config[site]['long_name']
     generate_echogram(avg, site, long_name, deployed_depth, output_directory, file_name, dates,
                       vertical_range=vertical_range, colorbar_range=colorbar_range)
@@ -868,6 +1151,7 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
     transparent.save(echogram)
 
     # save the averaged data
+    nc_file = os.path.join(output_directory, file_name)
     avg['ping_time'] = avg['ping_time'].values.astype(np.float64) / 10.0 ** 9
     avg.attrs = attributes['global']
     avg.attrs['instrument_orientation'] = site_config[site]['instrument_orientation']
