@@ -315,6 +315,9 @@ attributes = {
     }
 }
 
+# set expected frequency counts (used to trap misconfigured sensors)
+EXPECTED_FREQUENCY_COUNT = {'EK60': 3, 'EK80': 3, 'AZFP': 4}
+
 
 def set_file_name(site, dates):
     """
@@ -524,10 +527,19 @@ def ek_file_list(data_directory, dates):
     edate = dparser.parse(dates[1]) - timedelta(days=1)
     delta = edate - sdate
 
+    normalized = os.path.normpath(data_directory)
+    base_year = os.path.basename(normalized)
+    year_scoped = base_year.isdigit() and len(base_year) == 4
+    parent_dir = os.path.dirname(normalized)
+
     file_list = []
     for i in range(delta.days + 1):
         day = sdate + timedelta(days=i)
-        ek_files = glob.glob(os.path.join(data_directory, day.strftime('%m'), day.strftime('%d')) + '/*.raw')
+        if year_scoped and day.strftime('%Y') != base_year:
+            search_dir = os.path.join(parent_dir, day.strftime('%Y'))
+        else:
+            search_dir = data_directory
+        ek_files = glob.glob(os.path.join(search_dir, day.strftime('%m'), day.strftime('%d')) + '/*.raw')
         file_list.append(ek_files)
 
     return file_list
@@ -692,16 +704,12 @@ def _previous_day_last_file(data_directory, start_date_str, zpls_model):
     else:
         # EK60/EK80's directory structure is year-scoped. If the requested
         # range starts on Jan 1st, the previous day (Dec 31) falls in a
-        # different year, swap the year component.
-        current_year = start_date_str[:4]
+        # different year, check and swap the year component.
+        normalized = os.path.normpath(data_directory)
+        base_year = os.path.basename(normalized)
         prev_year = prev_day.strftime('%Y')
-        if prev_year != current_year:
-            normalized = os.path.normpath(data_directory)
-            if os.path.basename(normalized) == current_year:
-                search_dir = os.path.join(os.path.dirname(normalized), prev_year)
-            else:
-                # data_directory doesn't end in the expected current year
-                return None
+        if base_year.isdigit() and len(base_year) == 4 and prev_year != base_year:
+            search_dir = os.path.join(os.path.dirname(normalized), prev_year)
         else:
             search_dir = data_directory
         pattern = os.path.join(search_dir, prev_day.strftime('%m'), prev_day.strftime('%d')) + '/*.raw'
@@ -718,19 +726,9 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     Processes one calendar day at a time rather than the whole requested
     date range at once: converts, writes that day's full-resolution NetCDF,
     resamples, and releases the full-resolution data from memory before
-    moving to the next day. This avoids holding an entire multi-day chunk's
-    worth of converted data in memory simultaneously (observed to reach
-    70-177GB per worker on chunks with ~30+ EK80 files/week).
-
-    Each day's resample pass includes a forward buffer -- the leading files
-    of the NEXT day, already within the requested date range -- so the density
-    of the final bin spanning midnight is computed correctly rather than
-    truncated. The buffer never appears in a day's full-resolution NetCDF
-    output, and any resulting bin timestamped on the next day is trimmed
-    before this day's averaged result is kept, so nothing leaks forward and
-    the next day is not shorted when its own turn comes. The last day of the
-    requested range gets no forward buffer, matching how chunks already run
-    independently of neighboring chunks today.
+    moving to the next day. Each day's resample pass includes a forward
+    buffer so the density of the final bin spanning midnight is computed
+    correctly rather than truncated.
 
     :param site: Site name where the data was collected.
     :param data_directory: Source directory where the raw data files are
@@ -866,13 +864,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         # resample using the FULL day_ds (backward buffer + own day + forward
         # buffer) so both the first bin (which may start before midnight, if
         # a file recorded late the previous day ran over) and the last bin
-        # (which spans into the next day) are computed correctly, then trim
-        # to exactly this day's own time range before keeping the averaged
-        # result -- NaN trimming (dropna) is intentionally deferred until all
-        # days are concatenated below, matching the original single-pass
-        # behavior; doing it per-day let each day keep a different subset of
-        # range_sample bins (their echo_range NaN positions can differ
-        # slightly day to day), which broke alignment across days later
+        # (which may span into the next day) are computed correctly
         resample_ds = day_ds.copy()
         resample_ds['ping_time'] = resample_ds['ping_time'] + time_shift
         day_avg = resample_ds.resample(ping_time=resample_freq).mean(dim='ping_time', skipna=True, keep_attrs=True)
@@ -880,11 +872,9 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         day_avg = day_avg.compute()
         day_avg = day_avg.sel(ping_time=(day_avg.ping_time >= np.datetime64(day_start))
                                        & (day_avg.ping_time < np.datetime64(day_end)))
-
         daily_averages.append(day_avg)
 
-        # release the expensive full-resolution data for this day before
-        # moving on -- this is the actual memory fix
+        # release the expensive full-resolution data for this day before moving on
         del day_ds, day_only_ds, resample_ds
         n = 1
         while n > 0:
@@ -893,8 +883,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     if not daily_averages:
         return None, nc_files
 
-    # concatenate the per-day averaged datasets the same way individual files
-    # are combined within a day
+    # concatenate the per-day averaged datasets the same way individual files are combined within a day
     try:
         avg_chunk = xr.combine_by_coords(daily_averages, join='outer', combine_attrs='override')
     except ValueError:
@@ -979,11 +968,13 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     waveform = 'CW'  # defaults for the EK60 and EK80
     encode = 'power'
     if zpls_model == 'EK80':
-        # setting as defaults for the EK80 (note, this only support narrowband processing at this time)
+        # setting as defaults for the EK80 (note, this only supports narrowband processing at this time)
         try:
+            beam_grp = ds['Sonar/Beam_group1']
+            encode = 'complex' if beam_grp is not None and 'backscatter_i' in beam_grp.data_vars else 'power'
             ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params, waveform_mode=waveform, encode_mode=encode)
         except Exception as e:
-            print(f'Unit might be running in broadband mode (error: {e}), end processing.')
+            print(f'Unit might be running in broadband mode or some other error has occurred (error: {e}), end processing.')
             # manual garbage collection; echopype seems to leave a lot of detritus behind it
             del ds
             n = 1
@@ -1034,10 +1025,10 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     # rework the extracted dataset to make it easier to work with in further processing
     # --- convert range to a coordinate
     data['range_sample'] = data['range_sample'].astype(np.int32)  # convert the data type for range_sample
-    data['echo_range'] = data['echo_range'].sel(ping_time=data.ping_time[0], drop=True)
-    data = data.set_coords('echo_range')  # setup range as a coordinate variable
+    data['echo_range'] = data['echo_range'].max(dim='ping_time', skipna=True)
+    data = data.set_coords('echo_range')  # set up range as a coordinate variable
     # --- convert depth to a coordinate
-    data['depth'] = data['depth'].sel(ping_time=data.ping_time[0], drop=True)
+    data['depth'] = data['depth'].max(dim='ping_time', skipna=True)
     data = data.set_coords('depth')  # setup depth as a coordinate variable
     data = data.rename({'depth': 'nominal_depth'})
 
@@ -1127,6 +1118,15 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
     if avg is None:
         print(f'No data files were converted and processed. Check input settings, in particular the path to the raw '
               f'data files (or whether these were broadband files) for dates between {dates[0]} and {dates[1]}.')
+        return None
+
+    # catch a channel-count mismatch (happens when only 1 or 2 frequencies is present)
+    expected_count = EXPECTED_FREQUENCY_COUNT.get(zpls_model)
+    actual_count = avg.sizes.get('frequency_nominal')
+    if expected_count is not None and actual_count != expected_count:
+        print(f'Only {actual_count} of the expected {expected_count} frequency channels reported valid data for '
+            + f'dates between {dates[0]} and {dates[1]} (frequencies present: {list(avg.frequency_nominal.values)}). '
+            + f'Skipping echogram generation.')
         return None
 
     # generate the echogram
