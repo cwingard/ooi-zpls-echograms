@@ -968,19 +968,57 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     waveform = 'CW'  # defaults for the EK60 and EK80
     encode = 'power'
     if zpls_model == 'EK80':
-        # setting as defaults for the EK80 (note, this only supports narrowband processing at this time)
         try:
+            # determining waveform and encoding methods from the data (accounting for 3 different configuration modes)
             beam_grp = ds['Sonar/Beam_group1']
-            encode = 'complex' if beam_grp is not None and 'backscatter_i' in beam_grp.data_vars else 'power'
+            has_complex = (beam_grp is not None and 'backscatter_i' in beam_grp.data_vars
+                          and bool(beam_grp['backscatter_i'].notnull().any()))
+
+            # determine if any channels are broadband, and if so drop them
+            if has_complex and beam_grp is not None and 'transmit_type' in beam_grp.data_vars:
+                tt = beam_grp['transmit_type'].values
+                is_cw = np.array(['LFM' not in set(row) for row in tt])
+
+                if not is_cw.all():
+                    # drop LFM/broadband channels
+                    cw_channels = beam_grp['channel'].values[is_cw].tolist()
+                    if not cw_channels:
+                        print(f'{file}: all channels are LFM/broadband, no usable CW data, end processing.')
+                        del ds
+                        return None
+                    original_source_file = ds.source_file  # combine_echodata loses this -- restore below
+                    ds = ep.combine_echodata([ds], channel_selection=cw_channels)
+                    ds.source_file = original_source_file
+                    beam_grp = ds['Sonar/Beam_group1']
+
+                # clean up transmit_type NaN-padding on the retained channels
+                tt_cw = beam_grp['transmit_type']
+                valid_ping = (tt_cw != 'nan').any(dim='channel').compute()
+                beam_trimmed = beam_grp.isel(ping_time=valid_ping.values)
+                tt_fixed = xr.where(beam_trimmed['transmit_type'] == 'nan', 'CW',
+                                     beam_trimmed['transmit_type'])
+                beam_trimmed = beam_trimmed.assign(transmit_type=tt_fixed)
+                ds['Sonar/Beam_group1'] = beam_trimmed
+                beam_grp = ds['Sonar/Beam_group1']
+
+            # set the encoding type and compute the Sv
+            encode = 'complex' if has_complex else 'power'
             ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params, waveform_mode=waveform, encode_mode=encode)
+
+            # check the number of output channels are as expected
+            expected_channels = beam_grp.sizes.get('channel', 0)
+            if ds_sv.sizes.get('channel', 0) != expected_channels:
+                print(f'{file}: compute_Sv returned {ds_sv.sizes.get("channel", 0)} channels, '
+                      f'expected {expected_channels}, end processing.')
+                del ds
+                return None
         except Exception as e:
-            print(f'Unit might be running in broadband mode or some other error has occurred (error: {e}), end processing.')
+            print(f'{file}: compute_Sv failed (error: {e}), end processing.')
             # manual garbage collection; echopype seems to leave a lot of detritus behind it
             del ds
             n = 1
             while n > 0:
                 n = gc.collect()
-
             return None
     elif zpls_model == 'EK60':
         ds_sv = ep.calibrate.compute_Sv(ds, env_params=env_params, waveform_mode=waveform, encode_mode=encode)
