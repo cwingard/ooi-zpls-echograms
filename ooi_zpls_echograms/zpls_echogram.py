@@ -876,8 +876,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     # concatenate the per-day averaged datasets the same way individual files are combined within a day
     try:
         avg_chunk = xr.combine_by_coords(daily_averages, join='outer', combine_attrs='override')
-        print('  combine_by_coords SUCCEEDED', flush=True)
-    except ValueError:
+    except ValueError as e:
         avg_chunk = xr.concat(daily_averages, dim='ping_time', join='outer', combine_attrs='override')
         print(f'  combine_by_coords FAILED, used concat fallback: {e}', flush=True)
         if 'ping_time' in avg_chunk.echo_range.indexes.keys():
