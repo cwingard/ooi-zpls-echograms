@@ -280,7 +280,7 @@ attributes = {
         'long_name': 'Time of Each Ping',
         'standard_name': 'time',
         'units': 'seconds since 1970-01-01T00:00:00.000000Z',
-        'calendar': 'gregorian',
+        'calendar': 'Gregorian',
         'comment': ('Derived from the instrument internal clock. Note, instrument clocks are subject to drift over '
                     'the course of a deployment. The data should be checked against other sensors to determine if '
                     'drift and offset corrections to the instrument clock are applicable.')
@@ -749,7 +749,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     :param resample_freq: pandas resample offset alias, '15Min' or '60Min'.
     :param time_shift: pd.Timedelta bin-centering shift applied before
         resampling.
-    :param max_gap: pandas offset alias string passed to interpolate_na's
+    :param max_gap: pandas offset alias string passed to interpolate_na
         max_gap, e.g. '45Min' or '180Min'.
     :return: (avg_chunk, nc_files) where avg_chunk is the concatenated,
         gap-interpolated averaged xarray Dataset for the whole date range
@@ -782,10 +782,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         return None, []
 
     # the very first day of the range has no preceding day inside by_day to
-    # borrow a backward buffer from (that only ever contains days WITHIN the
-    # requested range) -- look one calendar day earlier on disk directly,
-    # using the range's actual start date, not day_keys[0] (which could
-    # differ if the first requested day itself had zero files of its own)
+    # borrow a backward buffer from -- look one calendar day earlier
     range_start = normalize_date_range(list(dates))[0]
     first_day_backward_file = _previous_day_last_file(data_directory, range_start, zpls_model)
 
@@ -798,11 +795,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         next_day_files = by_day[day_keys[i + 1]] if i + 1 < len(day_keys) else []
         forward_buffer = _forward_buffer_files(next_day_files, resample_freq)
 
-        # backward buffer: always pull the immediately preceding file, whole --
-        # file durations vary, and we can't cheaply know whether a file spans
-        # into this day without converting it, so we always include the prior
-        # file and let the ping_time-based masks below sort out what actually
-        # belongs to this day vs. was already written out by the previous one
+        # backward buffer: always pull the immediately preceding file
         if i == 0:
             backward_buffer = [first_day_backward_file] if first_day_backward_file else []
         else:
@@ -841,10 +834,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         day_ds['frequency_nominal'] = day_ds['frequency_nominal'].astype(np.float32)
         day_ds['Sv'] = day_ds['Sv'].astype(np.float32)
 
-        # split off exactly this day's own records (excludes buffer) for the
-        # full-resolution NetCDF write -- the buffer is only ever used to
-        # compute the boundary average bin correctly, never written to the
-        # full-res daily file
+        # split off this day's own records (excludes buffer) for the full-resolution NetCDF write
         day_start = datetime.strptime(day_key, '%Y%m%d')
         day_end = day_start + timedelta(days=1)
         own_day_mask = (day_ds.ping_time >= np.datetime64(day_start)) & (day_ds.ping_time < np.datetime64(day_end))
@@ -861,7 +851,7 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         nc_files.append(day_nc_path)
         del write_ds
 
-        # resample using the FULL day_ds (backward buffer + own day + forward
+        # resample using the full day (backward buffer + current day + forward
         # buffer) so both the first bin (which may start before midnight, if
         # a file recorded late the previous day ran over) and the last bin
         # (which may span into the next day) are computed correctly
@@ -931,15 +921,10 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     depth_offset = site_config[site]['depth_offset']  # height of sensor relative to site depth
     downward = site_config[site]['instrument_orientation'] == 'down'  # instrument orientation
 
-    # load the raw file, creating a xarray dataset object
+    # load the raw file, creating an xarray dataset object
     try:
-        # if this file was already converted (e.g. it's a boundary file that
-        # was already processed as the previous day's own/forward-buffer
-        # file, and is now being reprocessed as the next day's backward
-        # buffer), read the existing converted store instead of reparsing
-        # the raw file -- also avoids a second to_zarr/to_netcdf write below
-        # against a path that already exists (overwrite=False there is not
-        # confirmed to silently no-op on an existing store)
+        # if this file was already converted, read the existing converted store
+        # instead of reparsing the raw file
         stem = Path(file).stem
         converted_ext = '.zarr' if zpls_model == 'EK80' else '.nc'
         converted_path = Path(output_directory) / (stem + converted_ext)
@@ -1046,7 +1031,6 @@ def _process_file(file, site, output_directory, zpls_model, xml_file, tilt_corre
     data = ds_sv[['Sv', 'echo_range', 'depth']]
 
     # save the data to disk, skipping if this file was already converted
-    # (already_converted was determined above, before this file was opened)
     if not already_converted:
         if zpls_model == 'EK80':
             # output the files to Zarr (while larger than the NetCDF, faster for the EK80 files)
@@ -1198,6 +1182,7 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
 
     avg_file = nc_file + '_Averaged.nc'
     avg.to_netcdf(avg_file, mode='w', format='NETCDF4', engine='h5netcdf')
+    return None
 
 
 def main(argv=None):

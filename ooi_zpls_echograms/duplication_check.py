@@ -4,12 +4,6 @@ Find and remove duplicate converted echodata stores (.zarr for EK80) that
 were written into more than one chunk subfolder under a single site/year
 output tree.
 
-Duplicates happen because each weekly batch chunk gets its own
-`<start>-<stop>` output subfolder, and boundary files used as a backward or
-forward buffer at a chunk edge get independently reconverted rather than
-reused across chunks. The resulting stores are byte-for-byte redundant --
-this script verifies that before removing anything.
-
 Usage:
     python duplication_check.py /data/zplsc/CE02SHBP/MJ01C/07-ZPLSCB101/2023 [--delete]
 
