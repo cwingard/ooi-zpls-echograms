@@ -817,8 +817,8 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
         except ValueError:
             day_ds = xr.concat(echo, dim='ping_time', join='outer', combine_attrs='override')
             if 'ping_time' in day_ds.echo_range.indexes.keys():
-                day_ds['echo_range'] = day_ds['echo_range'].sel(ping_time=day_ds.ping_time[0], drop=True)
-                day_ds['nominal_depth'] = day_ds['nominal_depth'].sel(ping_time=day_ds.ping_time[0], drop=True)
+                day_ds['echo_range'] = day_ds['echo_range'].max(dim='ping_time', skipna=True)
+                day_ds['nominal_depth'] = day_ds['nominal_depth'].max(dim='ping_time', skipna=True)
         del echo
 
         day_ds = day_ds.sortby('ping_time')
@@ -876,11 +876,13 @@ def process_sonar_data(site, data_directory, output_directory, dates, zpls_model
     # concatenate the per-day averaged datasets the same way individual files are combined within a day
     try:
         avg_chunk = xr.combine_by_coords(daily_averages, join='outer', combine_attrs='override')
+        print('  combine_by_coords SUCCEEDED', flush=True)
     except ValueError:
         avg_chunk = xr.concat(daily_averages, dim='ping_time', join='outer', combine_attrs='override')
+        print(f'  combine_by_coords FAILED, used concat fallback: {e}', flush=True)
         if 'ping_time' in avg_chunk.echo_range.indexes.keys():
-            avg_chunk['echo_range'] = avg_chunk['echo_range'].sel(ping_time=avg_chunk.ping_time[0], drop=True)
-            avg_chunk['nominal_depth'] = avg_chunk['nominal_depth'].sel(ping_time=avg_chunk.ping_time[0], drop=True)
+            avg_chunk['echo_range'] = avg_chunk['echo_range'].max(dim='ping_time', skipna=True)
+            avg_chunk['nominal_depth'] = avg_chunk['nominal_depth'].max(dim='ping_time', skipna=True)
 
     avg_chunk = avg_chunk.sortby('ping_time')
     _, index = np.unique(avg_chunk['ping_time'], return_index=True)
@@ -1118,9 +1120,7 @@ def zpls_echogram(site, data_directory, output_directory, dates, zpls_model, xml
 
     file_name = set_file_name(site, dates)
 
-    # decide resample parameters before processing -- resampling now happens
-    # per-day inside process_sonar_data rather than once over the whole chunk
-    # afterward, so these need to be known up front
+    # decide resample parameters before processing
     if 'HYPM' in site:
         resample_freq = '60Min'
         time_shift = pd.to_timedelta(30, unit="min")
